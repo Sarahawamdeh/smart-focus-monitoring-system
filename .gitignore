@@ -1,0 +1,24 @@
+# Secrets - never commit
+.env
+*.pem
+*.key
+
+# Local database (create it with database.py + seed_demo_data.py)
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Recordings / camera captures
+*.mp4
+*.avi
+
+# OS / editor
+.DS_Store
+.vscode/
+~$*
