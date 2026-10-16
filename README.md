@@ -30,21 +30,53 @@ Goals:
 
 **Non-functional:** near real-time processing, a simple interface, protected credentials, and a structure that can grow to more courses and students.
 
-## System design
+## Architecture
 
-The analysis and design phase produced three diagrams.
+The app is a single Flask server that talks to the browser over HTTP, reads the webcam with OpenCV, scores each face with MediaPipe, and stores finished sessions in SQLite.
 
-**Use case diagram** - the instructor can sign up, log in, select a course, start monitoring (eye and head analysis, random student selection, alert), stop and save the session, and view history and details.
+```mermaid
+flowchart LR
+    Browser["Instructor's browser"] -->|"HTTP pages and fetch calls"| Flask["Flask app (app.py)"]
+    Camera["Webcam"] --> CV["OpenCV frames + MediaPipe face landmarks"]
+    CV --> Score["Per-face focus scoring"]
+    Score --> Flask
+    Flask -->|"/video_feed (MJPEG stream)"| Browser
+    Browser -->|"polls /focus-data"| Flask
+    Score --> Alert["Pygame audio alert"]
+    Flask <-->|"sessions, courses, history"| DB[("SQLite database")]
+```
 
-![Use case diagram](docs/diagrams/use-case.png)
+How a monitoring session works:
 
-**Context diagram** - the system exchanges course selection and login credentials with the instructor, receives the video stream from the camera, and sends an audio alert signal to the alert system.
+1. The instructor signs in, picks a course section, and opens the monitoring page.
+2. The page calls `/start_camera`, then shows the annotated video from `/video_feed`.
+3. For every frame, MediaPipe finds up to 5 faces, and the app updates each face's focus score from eye openness and head tilt. Scores are kept in memory behind a lock because the video generator and the web routes run on different threads.
+4. The page polls `/focus-data` to update the per-student and class-average numbers. If the class average drops below the threshold, an alert sound plays.
+5. On "Stop and Save", the page posts the results to `/save_session`, which writes a row to `sessions` and one row per student to `student_focus_data`.
+6. History and report pages read those tables back for each section.
 
-![Context diagram](docs/diagrams/context-diagram.png)
+The analysis-phase diagrams (use case, context and entity-relationship) are in [`docs/diagrams`](docs/diagrams).
 
-**Entity-relationship diagram** - an instructor teaches many sections, each section belongs to a course and has many sessions, and each session stores one focus score per student.
+### Routes
 
-![ERD](docs/diagrams/erd.png)
+| Route | Method | What it does |
+|---|---|---|
+| `/` | GET | Monitoring page |
+| `/f_page` | GET | Landing page |
+| `/signup` | GET, POST | Create an instructor account |
+| `/signin` | GET, POST | Sign in (password checked against the stored hash) |
+| `/logout` | GET | End the session |
+| `/courses` | GET | List the signed-in instructor's courses and sections |
+| `/monitor/<section_id>` | GET | Monitoring page for one course section |
+| `/start_camera` | GET | Turn the camera and analysis on |
+| `/stop_camera` | GET | Turn the camera and analysis off |
+| `/video_feed` | GET | Live annotated video as an MJPEG stream |
+| `/focus-data` | GET | JSON with each student's focus score and the class average |
+| `/highlight_random` | GET | Pick a random detected student and highlight them |
+| `/save_session` | POST | Save the session and per-student scores to the database |
+| `/history/<section_id>` | GET | Past sessions for a section |
+| `/last-report?id=` | GET | Report page for the session that was just saved |
+| `/report-page?id=` | GET | Detailed report for one past lecture |
 
 ### Database
 
@@ -77,7 +109,7 @@ database.py          SQLite schema (instructors, courses, sections, students, se
 seed_demo_data.py    Demo data (fake instructor and students)
 templates/           HTML pages
 static/              Logo images and alert sound
-docs/diagrams/       ERD, use case and context diagrams
+docs/diagrams/       Use case, context and ERD diagrams from the analysis phase
 ```
 
 ## Privacy
